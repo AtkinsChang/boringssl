@@ -61,15 +61,22 @@
 
 #include <openssl/rsa.h>
 
+#include <oqs/oqs.h>
+
 #if defined(__cplusplus)
 extern "C" {
 #endif
 
 
+typedef struct evp_pkey_asn1_method_st EVP_PKEY_ASN1_METHOD;
+typedef struct evp_pkey_method_st EVP_PKEY_METHOD;
+
 struct evp_pkey_asn1_method_st {
   int pkey_id;
-  uint8_t oid[9];
+  uint8_t oid[11]; // OQS note: increased length (was 9) to accomodate larger PQ OIDs
   uint8_t oid_len;
+
+  const EVP_PKEY_METHOD *pkey_method;
 
   // pub_decode decodes |params| and |key| as a SubjectPublicKeyInfo
   // and writes the result into |out|. It returns one on success and zero on
@@ -96,11 +103,30 @@ struct evp_pkey_asn1_method_st {
   // |out|. It returns one on success and zero on error.
   int (*priv_encode)(CBB *out, const EVP_PKEY *key);
 
+  int (*set_priv_raw)(EVP_PKEY *pkey, const uint8_t *in, size_t len);
+  int (*set_pub_raw)(EVP_PKEY *pkey, const uint8_t *in, size_t len);
+  int (*get_priv_raw)(const EVP_PKEY *pkey, uint8_t *out, size_t *out_len);
+  int (*get_pub_raw)(const EVP_PKEY *pkey, uint8_t *out, size_t *out_len);
+
+  // TODO(davidben): Can these be merged with the functions above? OpenSSL does
+  // not implement |EVP_PKEY_get_raw_public_key|, etc., for |EVP_PKEY_EC|, but
+  // the distinction seems unimportant. OpenSSL 3.0 has since renamed
+  // |EVP_PKEY_get1_tls_encodedpoint| to |EVP_PKEY_get1_encoded_public_key|, and
+  // what is the difference between "raw" and an "encoded" public key.
+  //
+  // One nuisance is the notion of "raw" is slightly ambiguous for EC keys. Is
+  // it a DER ECPrivateKey or just the scalar?
+  int (*set1_tls_encodedpoint)(EVP_PKEY *pkey, const uint8_t *in, size_t len);
+  size_t (*get1_tls_encodedpoint)(const EVP_PKEY *pkey, uint8_t **out_ptr);
+
   // pkey_opaque returns 1 if the |pk| is opaque. Opaque keys are backed by
   // custom implementations which do not expose key material and parameters.
   int (*pkey_opaque)(const EVP_PKEY *pk);
 
-  int (*pkey_size)(const EVP_PKEY *pk);
+  // OQS note: We've changed the return type from "int" to "size_t"
+  // to allow for PQ algorithms with large signatures.
+  size_t (*pkey_size)(const EVP_PKEY *pk);
+
   int (*pkey_bits)(const EVP_PKEY *pk);
 
   int (*param_missing)(const EVP_PKEY *pk);
@@ -110,6 +136,20 @@ struct evp_pkey_asn1_method_st {
   void (*pkey_free)(EVP_PKEY *pkey);
 } /* EVP_PKEY_ASN1_METHOD */;
 
+struct evp_pkey_st {
+  CRYPTO_refcount_t references;
+
+  // type contains one of the EVP_PKEY_* values or NID_undef and determines
+  // the type of |pkey|.
+  int type;
+
+  // pkey contains a pointer to a structure dependent on |type|.
+  void *pkey;
+
+  // ameth contains a pointer to a method table that contains many ASN.1
+  // methods for the key type.
+  const EVP_PKEY_ASN1_METHOD *ameth;
+} /* EVP_PKEY */;
 
 #define EVP_PKEY_OP_UNDEFINED 0
 #define EVP_PKEY_OP_KEYGEN (1 << 2)
@@ -173,6 +213,11 @@ OPENSSL_EXPORT int EVP_PKEY_CTX_ctrl(EVP_PKEY_CTX *ctx, int keytype, int optype,
 #define EVP_PKEY_CTRL_RSA_OAEP_LABEL (EVP_PKEY_ALG_CTRL + 11)
 #define EVP_PKEY_CTRL_GET_RSA_OAEP_LABEL (EVP_PKEY_ALG_CTRL + 12)
 #define EVP_PKEY_CTRL_EC_PARAMGEN_CURVE_NID (EVP_PKEY_ALG_CTRL + 13)
+#define EVP_PKEY_CTRL_HKDF_MODE (EVP_PKEY_ALG_CTRL + 14)
+#define EVP_PKEY_CTRL_HKDF_MD (EVP_PKEY_ALG_CTRL + 15)
+#define EVP_PKEY_CTRL_HKDF_KEY (EVP_PKEY_ALG_CTRL + 16)
+#define EVP_PKEY_CTRL_HKDF_SALT (EVP_PKEY_ALG_CTRL + 17)
+#define EVP_PKEY_CTRL_HKDF_INFO (EVP_PKEY_ALG_CTRL + 18)
 
 struct evp_pkey_ctx_st {
   // Method associated with this operation
@@ -227,27 +272,78 @@ struct evp_pkey_method_st {
 } /* EVP_PKEY_METHOD */;
 
 typedef struct {
-  union {
-    uint8_t priv[64];
-    struct {
-      // Shift the location of the public key to align with where it is in the
-      // private key representation.
-      uint8_t pad[32];
-      uint8_t value[32];
-    } pub;
-  } key;
+  // key is the concatenation of the private seed and public key. It is stored
+  // as a single 64-bit array to allow passing to |ED25519_sign|. If
+  // |has_private| is false, the first 32 bytes are uninitialized and the public
+  // key is in the last 32 bytes.
+  uint8_t key[64];
   char has_private;
 } ED25519_KEY;
+
+#define ED25519_PUBLIC_KEY_OFFSET 32
+
+typedef struct {
+    OQS_SIG *ctx;
+    uint8_t *pub;
+    uint8_t *priv;
+    char has_private;
+} OQS_KEY;
+
+typedef struct {
+  uint8_t pub[32];
+  uint8_t priv[32];
+  char has_private;
+} X25519_KEY;
 
 extern const EVP_PKEY_ASN1_METHOD dsa_asn1_meth;
 extern const EVP_PKEY_ASN1_METHOD ec_asn1_meth;
 extern const EVP_PKEY_ASN1_METHOD rsa_asn1_meth;
 extern const EVP_PKEY_ASN1_METHOD ed25519_asn1_meth;
+extern const EVP_PKEY_ASN1_METHOD x25519_asn1_meth;
+///// OQS_TEMPLATE_FRAGMENT_DECLARE_ASN1_METHS_START
+extern const EVP_PKEY_ASN1_METHOD dilithium2_asn1_meth;
+extern const EVP_PKEY_ASN1_METHOD dilithium3_asn1_meth;
+extern const EVP_PKEY_ASN1_METHOD dilithium5_asn1_meth;
+extern const EVP_PKEY_ASN1_METHOD falcon512_asn1_meth;
+extern const EVP_PKEY_ASN1_METHOD falcon1024_asn1_meth;
+extern const EVP_PKEY_ASN1_METHOD sphincssha2128fsimple_asn1_meth;
+extern const EVP_PKEY_ASN1_METHOD sphincssha2128ssimple_asn1_meth;
+extern const EVP_PKEY_ASN1_METHOD sphincssha2192fsimple_asn1_meth;
+extern const EVP_PKEY_ASN1_METHOD sphincssha2192ssimple_asn1_meth;
+extern const EVP_PKEY_ASN1_METHOD sphincssha2256fsimple_asn1_meth;
+extern const EVP_PKEY_ASN1_METHOD sphincssha2256ssimple_asn1_meth;
+extern const EVP_PKEY_ASN1_METHOD sphincsshake128fsimple_asn1_meth;
+extern const EVP_PKEY_ASN1_METHOD sphincsshake128ssimple_asn1_meth;
+extern const EVP_PKEY_ASN1_METHOD sphincsshake192fsimple_asn1_meth;
+extern const EVP_PKEY_ASN1_METHOD sphincsshake192ssimple_asn1_meth;
+extern const EVP_PKEY_ASN1_METHOD sphincsshake256fsimple_asn1_meth;
+extern const EVP_PKEY_ASN1_METHOD sphincsshake256ssimple_asn1_meth;
+///// OQS_TEMPLATE_FRAGMENT_DECLARE_ASN1_METHS_END
 
 extern const EVP_PKEY_METHOD rsa_pkey_meth;
 extern const EVP_PKEY_METHOD ec_pkey_meth;
 extern const EVP_PKEY_METHOD ed25519_pkey_meth;
-
+extern const EVP_PKEY_METHOD x25519_pkey_meth;
+extern const EVP_PKEY_METHOD hkdf_pkey_meth;
+///// OQS_TEMPLATE_FRAGMENT_DECLARE_PKEY_METHS_START
+extern const EVP_PKEY_METHOD dilithium2_pkey_meth;
+extern const EVP_PKEY_METHOD dilithium3_pkey_meth;
+extern const EVP_PKEY_METHOD dilithium5_pkey_meth;
+extern const EVP_PKEY_METHOD falcon512_pkey_meth;
+extern const EVP_PKEY_METHOD falcon1024_pkey_meth;
+extern const EVP_PKEY_METHOD sphincssha2128fsimple_pkey_meth;
+extern const EVP_PKEY_METHOD sphincssha2128ssimple_pkey_meth;
+extern const EVP_PKEY_METHOD sphincssha2192fsimple_pkey_meth;
+extern const EVP_PKEY_METHOD sphincssha2192ssimple_pkey_meth;
+extern const EVP_PKEY_METHOD sphincssha2256fsimple_pkey_meth;
+extern const EVP_PKEY_METHOD sphincssha2256ssimple_pkey_meth;
+extern const EVP_PKEY_METHOD sphincsshake128fsimple_pkey_meth;
+extern const EVP_PKEY_METHOD sphincsshake128ssimple_pkey_meth;
+extern const EVP_PKEY_METHOD sphincsshake192fsimple_pkey_meth;
+extern const EVP_PKEY_METHOD sphincsshake192ssimple_pkey_meth;
+extern const EVP_PKEY_METHOD sphincsshake256fsimple_pkey_meth;
+extern const EVP_PKEY_METHOD sphincsshake256ssimple_pkey_meth;
+///// OQS_TEMPLATE_FRAGMENT_DECLARE_PKEY_METHS_END
 
 #if defined(__cplusplus)
 }  // extern C

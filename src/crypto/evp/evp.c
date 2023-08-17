@@ -71,12 +71,20 @@
 #include "../internal.h"
 
 
+// Node depends on |EVP_R_NOT_XOF_OR_INVALID_LENGTH|.
+//
+// TODO(davidben): Fix Node to not touch the error queue itself and remove this.
+OPENSSL_DECLARE_ERROR_REASON(EVP, NOT_XOF_OR_INVALID_LENGTH)
+
+// The HPKE module uses the EVP error namespace, but it lives in another
+// directory.
+OPENSSL_DECLARE_ERROR_REASON(EVP, EMPTY_PSK)
+
 EVP_PKEY *EVP_PKEY_new(void) {
   EVP_PKEY *ret;
 
   ret = OPENSSL_malloc(sizeof(EVP_PKEY));
   if (ret == NULL) {
-    OPENSSL_PUT_ERROR(EVP, ERR_R_MALLOC_FAILURE);
     return NULL;
   }
 
@@ -90,7 +98,7 @@ EVP_PKEY *EVP_PKEY_new(void) {
 static void free_it(EVP_PKEY *pkey) {
   if (pkey->ameth && pkey->ameth->pkey_free) {
     pkey->ameth->pkey_free(pkey);
-    pkey->pkey.ptr = NULL;
+    pkey->pkey = NULL;
     pkey->type = EVP_PKEY_NONE;
   }
 }
@@ -144,21 +152,35 @@ int EVP_PKEY_cmp(const EVP_PKEY *a, const EVP_PKEY *b) {
 }
 
 int EVP_PKEY_copy_parameters(EVP_PKEY *to, const EVP_PKEY *from) {
-  if (to->type != from->type) {
+  if (to->type == EVP_PKEY_NONE) {
+    if (!EVP_PKEY_set_type(to, from->type)) {
+      return 0;
+    }
+  } else if (to->type != from->type) {
     OPENSSL_PUT_ERROR(EVP, EVP_R_DIFFERENT_KEY_TYPES);
-    goto err;
+    return 0;
   }
 
   if (EVP_PKEY_missing_parameters(from)) {
     OPENSSL_PUT_ERROR(EVP, EVP_R_MISSING_PARAMETERS);
-    goto err;
+    return 0;
+  }
+
+  // Once set, parameters may not change.
+  if (!EVP_PKEY_missing_parameters(to)) {
+    if (EVP_PKEY_cmp_parameters(to, from) == 1) {
+      return 1;
+    }
+    OPENSSL_PUT_ERROR(EVP, EVP_R_DIFFERENT_PARAMETERS);
+    return 0;
   }
 
   if (from->ameth && from->ameth->param_copy) {
     return from->ameth->param_copy(to, from);
   }
 
-err:
+  // TODO(https://crbug.com/boringssl/536): If the algorithm takes no
+  // parameters, copying them should vacuously succeed.
   return 0;
 }
 
@@ -169,7 +191,10 @@ int EVP_PKEY_missing_parameters(const EVP_PKEY *pkey) {
   return 0;
 }
 
-int EVP_PKEY_size(const EVP_PKEY *pkey) {
+// OQS note: We've changed the return type
+// from "int" to "size_t" to allow for PQ
+// algorithms with large signatures.
+size_t EVP_PKEY_size(const EVP_PKEY *pkey) {
   if (pkey && pkey->ameth && pkey->ameth->pkey_size) {
     return pkey->ameth->pkey_size(pkey);
   }
@@ -200,9 +225,54 @@ static const EVP_PKEY_ASN1_METHOD *evp_pkey_asn1_find(int nid) {
       return &dsa_asn1_meth;
     case EVP_PKEY_ED25519:
       return &ed25519_asn1_meth;
+    case EVP_PKEY_X25519:
+      return &x25519_asn1_meth;
+///// OQS_TEMPLATE_FRAGMENT_PKEY_TO_ASN1_METH_START
+    case EVP_PKEY_DILITHIUM2:
+      return &dilithium2_asn1_meth;
+    case EVP_PKEY_DILITHIUM3:
+      return &dilithium3_asn1_meth;
+    case EVP_PKEY_DILITHIUM5:
+      return &dilithium5_asn1_meth;
+    case EVP_PKEY_FALCON512:
+      return &falcon512_asn1_meth;
+    case EVP_PKEY_FALCON1024:
+      return &falcon1024_asn1_meth;
+    case EVP_PKEY_SPHINCSSHA2128FSIMPLE:
+      return &sphincssha2128fsimple_asn1_meth;
+    case EVP_PKEY_SPHINCSSHA2128SSIMPLE:
+      return &sphincssha2128ssimple_asn1_meth;
+    case EVP_PKEY_SPHINCSSHA2192FSIMPLE:
+      return &sphincssha2192fsimple_asn1_meth;
+    case EVP_PKEY_SPHINCSSHA2192SSIMPLE:
+      return &sphincssha2192ssimple_asn1_meth;
+    case EVP_PKEY_SPHINCSSHA2256FSIMPLE:
+      return &sphincssha2256fsimple_asn1_meth;
+    case EVP_PKEY_SPHINCSSHA2256SSIMPLE:
+      return &sphincssha2256ssimple_asn1_meth;
+    case EVP_PKEY_SPHINCSSHAKE128FSIMPLE:
+      return &sphincsshake128fsimple_asn1_meth;
+    case EVP_PKEY_SPHINCSSHAKE128SSIMPLE:
+      return &sphincsshake128ssimple_asn1_meth;
+    case EVP_PKEY_SPHINCSSHAKE192FSIMPLE:
+      return &sphincsshake192fsimple_asn1_meth;
+    case EVP_PKEY_SPHINCSSHAKE192SSIMPLE:
+      return &sphincsshake192ssimple_asn1_meth;
+    case EVP_PKEY_SPHINCSSHAKE256FSIMPLE:
+      return &sphincsshake256fsimple_asn1_meth;
+    case EVP_PKEY_SPHINCSSHAKE256SSIMPLE:
+      return &sphincsshake256ssimple_asn1_meth;
+///// OQS_TEMPLATE_FRAGMENT_PKEY_TO_ASN1_METH_END
     default:
       return NULL;
   }
+}
+
+static void evp_pkey_set_method(EVP_PKEY *pkey,
+                                const EVP_PKEY_ASN1_METHOD *method) {
+  free_it(pkey);
+  pkey->ameth = method;
+  pkey->type = pkey->ameth->pkey_id;
 }
 
 int EVP_PKEY_type(int nid) {
@@ -222,7 +292,9 @@ int EVP_PKEY_set1_RSA(EVP_PKEY *pkey, RSA *key) {
 }
 
 int EVP_PKEY_assign_RSA(EVP_PKEY *pkey, RSA *key) {
-  return EVP_PKEY_assign(pkey, EVP_PKEY_RSA, key);
+  evp_pkey_set_method(pkey, &rsa_asn1_meth);
+  pkey->pkey = key;
+  return key != NULL;
 }
 
 RSA *EVP_PKEY_get0_RSA(const EVP_PKEY *pkey) {
@@ -230,7 +302,7 @@ RSA *EVP_PKEY_get0_RSA(const EVP_PKEY *pkey) {
     OPENSSL_PUT_ERROR(EVP, EVP_R_EXPECTING_AN_RSA_KEY);
     return NULL;
   }
-  return pkey->pkey.rsa;
+  return pkey->pkey;
 }
 
 RSA *EVP_PKEY_get1_RSA(const EVP_PKEY *pkey) {
@@ -250,7 +322,9 @@ int EVP_PKEY_set1_DSA(EVP_PKEY *pkey, DSA *key) {
 }
 
 int EVP_PKEY_assign_DSA(EVP_PKEY *pkey, DSA *key) {
-  return EVP_PKEY_assign(pkey, EVP_PKEY_DSA, key);
+  evp_pkey_set_method(pkey, &dsa_asn1_meth);
+  pkey->pkey = key;
+  return key != NULL;
 }
 
 DSA *EVP_PKEY_get0_DSA(const EVP_PKEY *pkey) {
@@ -258,7 +332,7 @@ DSA *EVP_PKEY_get0_DSA(const EVP_PKEY *pkey) {
     OPENSSL_PUT_ERROR(EVP, EVP_R_EXPECTING_A_DSA_KEY);
     return NULL;
   }
-  return pkey->pkey.dsa;
+  return pkey->pkey;
 }
 
 DSA *EVP_PKEY_get1_DSA(const EVP_PKEY *pkey) {
@@ -278,7 +352,9 @@ int EVP_PKEY_set1_EC_KEY(EVP_PKEY *pkey, EC_KEY *key) {
 }
 
 int EVP_PKEY_assign_EC_KEY(EVP_PKEY *pkey, EC_KEY *key) {
-  return EVP_PKEY_assign(pkey, EVP_PKEY_EC, key);
+  evp_pkey_set_method(pkey, &ec_asn1_meth);
+  pkey->pkey = key;
+  return key != NULL;
 }
 
 EC_KEY *EVP_PKEY_get0_EC_KEY(const EVP_PKEY *pkey) {
@@ -286,7 +362,7 @@ EC_KEY *EVP_PKEY_get0_EC_KEY(const EVP_PKEY *pkey) {
     OPENSSL_PUT_ERROR(EVP, EVP_R_EXPECTING_AN_EC_KEY_KEY);
     return NULL;
   }
-  return pkey->pkey.ec;
+  return pkey->pkey;
 }
 
 EC_KEY *EVP_PKEY_get1_EC_KEY(const EVP_PKEY *pkey) {
@@ -301,21 +377,32 @@ DH *EVP_PKEY_get0_DH(const EVP_PKEY *pkey) { return NULL; }
 DH *EVP_PKEY_get1_DH(const EVP_PKEY *pkey) { return NULL; }
 
 int EVP_PKEY_assign(EVP_PKEY *pkey, int type, void *key) {
-  if (!EVP_PKEY_set_type(pkey, type)) {
-    return 0;
+  // This function can only be used to assign RSA, DSA, and EC keys. Other key
+  // types have internal representations which are not exposed through the
+  // public API.
+  switch (type) {
+    case EVP_PKEY_RSA:
+      return EVP_PKEY_assign_RSA(pkey, key);
+    case EVP_PKEY_DSA:
+      return EVP_PKEY_assign_DSA(pkey, key);
+    case EVP_PKEY_EC:
+      return EVP_PKEY_assign_EC_KEY(pkey, key);
   }
-  pkey->pkey.ptr = key;
-  return key != NULL;
+
+  OPENSSL_PUT_ERROR(EVP, EVP_R_UNSUPPORTED_ALGORITHM);
+  ERR_add_error_dataf("algorithm %d", type);
+  return 0;
 }
 
 int EVP_PKEY_set_type(EVP_PKEY *pkey, int type) {
-  const EVP_PKEY_ASN1_METHOD *ameth;
-
-  if (pkey && pkey->pkey.ptr) {
+  if (pkey && pkey->pkey) {
+    // This isn't strictly necessary, but historically |EVP_PKEY_set_type| would
+    // clear |pkey| even if |evp_pkey_asn1_find| failed, so we preserve that
+    // behavior.
     free_it(pkey);
   }
 
-  ameth = evp_pkey_asn1_find(type);
+  const EVP_PKEY_ASN1_METHOD *ameth = evp_pkey_asn1_find(type);
   if (ameth == NULL) {
     OPENSSL_PUT_ERROR(EVP, EVP_R_UNSUPPORTED_ALGORITHM);
     ERR_add_error_dataf("algorithm %d", type);
@@ -323,14 +410,79 @@ int EVP_PKEY_set_type(EVP_PKEY *pkey, int type) {
   }
 
   if (pkey) {
-    pkey->ameth = ameth;
-    pkey->type = pkey->ameth->pkey_id;
+    evp_pkey_set_method(pkey, ameth);
   }
 
   return 1;
 }
 
+EVP_PKEY *EVP_PKEY_new_raw_private_key(int type, ENGINE *unused,
+                                       const uint8_t *in, size_t len) {
+  EVP_PKEY *ret = EVP_PKEY_new();
+  if (ret == NULL ||
+      !EVP_PKEY_set_type(ret, type)) {
+    goto err;
+  }
 
+  if (ret->ameth->set_priv_raw == NULL) {
+    OPENSSL_PUT_ERROR(EVP, EVP_R_OPERATION_NOT_SUPPORTED_FOR_THIS_KEYTYPE);
+    goto err;
+  }
+
+  if (!ret->ameth->set_priv_raw(ret, in, len)) {
+    goto err;
+  }
+
+  return ret;
+
+err:
+  EVP_PKEY_free(ret);
+  return NULL;
+}
+
+EVP_PKEY *EVP_PKEY_new_raw_public_key(int type, ENGINE *unused,
+                                      const uint8_t *in, size_t len) {
+  EVP_PKEY *ret = EVP_PKEY_new();
+  if (ret == NULL ||
+      !EVP_PKEY_set_type(ret, type)) {
+    goto err;
+  }
+
+  if (ret->ameth->set_pub_raw == NULL) {
+    OPENSSL_PUT_ERROR(EVP, EVP_R_OPERATION_NOT_SUPPORTED_FOR_THIS_KEYTYPE);
+    goto err;
+  }
+
+  if (!ret->ameth->set_pub_raw(ret, in, len)) {
+    goto err;
+  }
+
+  return ret;
+
+err:
+  EVP_PKEY_free(ret);
+  return NULL;
+}
+
+int EVP_PKEY_get_raw_private_key(const EVP_PKEY *pkey, uint8_t *out,
+                                 size_t *out_len) {
+  if (pkey->ameth->get_priv_raw == NULL) {
+    OPENSSL_PUT_ERROR(EVP, EVP_R_OPERATION_NOT_SUPPORTED_FOR_THIS_KEYTYPE);
+    return 0;
+  }
+
+  return pkey->ameth->get_priv_raw(pkey, out, out_len);
+}
+
+int EVP_PKEY_get_raw_public_key(const EVP_PKEY *pkey, uint8_t *out,
+                                size_t *out_len) {
+  if (pkey->ameth->get_pub_raw == NULL) {
+    OPENSSL_PUT_ERROR(EVP, EVP_R_OPERATION_NOT_SUPPORTED_FOR_THIS_KEYTYPE);
+    return 0;
+  }
+
+  return pkey->ameth->get_pub_raw(pkey, out, out_len);
+}
 
 int EVP_PKEY_cmp_parameters(const EVP_PKEY *a, const EVP_PKEY *b) {
   if (a->type != b->type) {
@@ -339,6 +491,8 @@ int EVP_PKEY_cmp_parameters(const EVP_PKEY *a, const EVP_PKEY *b) {
   if (a->ameth && a->ameth->param_cmp) {
     return a->ameth->param_cmp(a, b);
   }
+  // TODO(https://crbug.com/boringssl/536): If the algorithm doesn't use
+  // parameters, they should compare as vacuously equal.
   return -2;
 }
 
@@ -352,6 +506,15 @@ int EVP_PKEY_CTX_get_signature_md(EVP_PKEY_CTX *ctx, const EVP_MD **out_md) {
                            0, (void *)out_md);
 }
 
+void *EVP_PKEY_get0(const EVP_PKEY *pkey) {
+  // Node references, but never calls this function, so for now we return NULL.
+  // If other projects require complete support, call |EVP_PKEY_get0_RSA|, etc.,
+  // rather than reading |pkey->pkey| directly. This avoids problems if our
+  // internal representation does not match the type the caller expects from
+  // OpenSSL.
+  return NULL;
+}
+
 void OpenSSL_add_all_algorithms(void) {}
 
 void OPENSSL_add_all_algorithms_conf(void) {}
@@ -361,3 +524,29 @@ void OpenSSL_add_all_ciphers(void) {}
 void OpenSSL_add_all_digests(void) {}
 
 void EVP_cleanup(void) {}
+
+int EVP_PKEY_set1_tls_encodedpoint(EVP_PKEY *pkey, const uint8_t *in,
+                                   size_t len) {
+  if (pkey->ameth->set1_tls_encodedpoint == NULL) {
+    OPENSSL_PUT_ERROR(EVP, EVP_R_OPERATION_NOT_SUPPORTED_FOR_THIS_KEYTYPE);
+    return 0;
+  }
+
+  return pkey->ameth->set1_tls_encodedpoint(pkey, in, len);
+}
+
+size_t EVP_PKEY_get1_tls_encodedpoint(const EVP_PKEY *pkey, uint8_t **out_ptr) {
+  if (pkey->ameth->get1_tls_encodedpoint == NULL) {
+    OPENSSL_PUT_ERROR(EVP, EVP_R_OPERATION_NOT_SUPPORTED_FOR_THIS_KEYTYPE);
+    return 0;
+  }
+
+  return pkey->ameth->get1_tls_encodedpoint(pkey, out_ptr);
+}
+
+int EVP_PKEY_base_id(const EVP_PKEY *pkey) {
+  // OpenSSL has two notions of key type because it supports multiple OIDs for
+  // the same algorithm: NID_rsa vs NID_rsaEncryption and five distinct spelling
+  // of DSA. We do not support these, so the base ID is simply the ID.
+  return EVP_PKEY_id(pkey);
+}

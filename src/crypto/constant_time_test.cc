@@ -52,6 +52,7 @@
 #include <limits>
 
 #include <gtest/gtest.h>
+#include "test/test_util.h"
 
 #include <openssl/mem.h>
 #include <openssl/rand.h>
@@ -151,5 +152,89 @@ TEST(ConstantTimeTest, MemCmp) {
       copy[i] ^= bit;
       EXPECT_NE(0, CRYPTO_memcmp(buf, copy, sizeof(buf)));
     }
+  }
+}
+
+TEST(ConstantTimeTest, ValueBarrier) {
+  for (int i = 0; i < 10; i++) {
+    crypto_word_t word;
+    RAND_bytes(reinterpret_cast<uint8_t *>(&word), sizeof(word));
+    EXPECT_EQ(word, value_barrier_w(word));
+
+    uint32_t u32;
+    RAND_bytes(reinterpret_cast<uint8_t *>(&u32), sizeof(u32));
+    EXPECT_EQ(u32, value_barrier_u32(u32));
+
+    uint64_t u64;
+    RAND_bytes(reinterpret_cast<uint8_t *>(&u64), sizeof(u64));
+    EXPECT_EQ(u64, value_barrier_u64(u64));
+  }
+}
+
+TEST(ConstantTimeTest, MemCmov) {
+  for (int i = 0; i < 100; i++) {
+    uint8_t out[256], in[256];
+    RAND_bytes(out, sizeof(out));
+    RAND_bytes(in, sizeof(in));
+
+    uint8_t b = 0;
+    RAND_bytes(&b, 1);
+    b = constant_time_is_zero_8(b & 0xf);
+
+    uint8_t ref_in[256];
+    OPENSSL_memcpy(ref_in, in, sizeof(in));
+
+    uint8_t ref_out[256];
+    OPENSSL_memcpy(ref_out, out, sizeof(out));
+    if (b) {
+      OPENSSL_memcpy(ref_out, in, sizeof(in));
+    }
+
+    CONSTTIME_SECRET(out, sizeof(out));
+    CONSTTIME_SECRET(in, sizeof(in));
+    CONSTTIME_SECRET(&b, 1);
+
+    constant_time_conditional_memcpy(out, in, sizeof(out), b);
+
+    CONSTTIME_DECLASSIFY(&in, sizeof(in));
+    CONSTTIME_DECLASSIFY(&out, sizeof(out));
+
+    EXPECT_EQ(Bytes(in), Bytes(ref_in));
+    EXPECT_EQ(Bytes(out), Bytes(ref_out));
+  }
+}
+
+TEST(ConstantTimeTest, MemCxor) {
+  for (int i = 0; i < 100; i++) {
+    uint8_t out[256], in[256];
+    RAND_bytes(out, sizeof(out));
+    RAND_bytes(in, sizeof(in));
+
+    uint8_t b = 0;
+    RAND_bytes(&b, 1);
+    b = constant_time_is_zero_8(b & 0xf);
+
+    uint8_t ref_in[256];
+    OPENSSL_memcpy(ref_in, in, sizeof(in));
+
+    uint8_t ref_out[256];
+    OPENSSL_memcpy(ref_out, out, sizeof(out));
+    if (b) {
+      for (size_t j = 0; j < sizeof(ref_out); ++j) {
+        ref_out[j] ^= in[j];
+      }
+    }
+
+    CONSTTIME_SECRET(out, sizeof(out));
+    CONSTTIME_SECRET(in, sizeof(in));
+    CONSTTIME_SECRET(&b, 1);
+
+    constant_time_conditional_memxor(out, in, sizeof(out), b);
+
+    CONSTTIME_DECLASSIFY(&in, sizeof(in));
+    CONSTTIME_DECLASSIFY(&out, sizeof(out));
+
+    EXPECT_EQ(Bytes(in), Bytes(ref_in));
+    EXPECT_EQ(Bytes(out), Bytes(ref_out));
   }
 }

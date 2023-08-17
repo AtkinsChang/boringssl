@@ -89,6 +89,25 @@ static const nid_triple kTriples[] = {
     // digest "undef" indicates the caller should handle this explicitly.
     {NID_rsassaPss, NID_undef, NID_rsaEncryption},
     {NID_ED25519, NID_undef, NID_ED25519},
+///// OQS_TEMPLATE_FRAGMENT_DEFINE_NID_TRIPLES_START
+    {NID_dilithium2, NID_sha256, NID_dilithium2},
+    {NID_dilithium3, NID_sha384, NID_dilithium3},
+    {NID_dilithium5, NID_sha512, NID_dilithium5},
+    {NID_falcon512, NID_sha256, NID_falcon512},
+    {NID_falcon1024, NID_sha512, NID_falcon1024},
+    {NID_sphincssha2128fsimple, NID_sha256, NID_sphincssha2128fsimple},
+    {NID_sphincssha2128ssimple, NID_sha256, NID_sphincssha2128ssimple},
+    {NID_sphincssha2192fsimple, NID_sha384, NID_sphincssha2192fsimple},
+    {NID_sphincssha2192ssimple, NID_sha384, NID_sphincssha2192ssimple},
+    {NID_sphincssha2256fsimple, NID_sha512, NID_sphincssha2256fsimple},
+    {NID_sphincssha2256ssimple, NID_sha512, NID_sphincssha2256ssimple},
+    {NID_sphincsshake128fsimple, NID_sha256, NID_sphincsshake128fsimple},
+    {NID_sphincsshake128ssimple, NID_sha256, NID_sphincsshake128ssimple},
+    {NID_sphincsshake192fsimple, NID_sha384, NID_sphincsshake192fsimple},
+    {NID_sphincsshake192ssimple, NID_sha384, NID_sphincsshake192ssimple},
+    {NID_sphincsshake256fsimple, NID_sha512, NID_sphincsshake256fsimple},
+    {NID_sphincsshake256ssimple, NID_sha512, NID_sphincsshake256ssimple},
+///// OQS_TEMPLATE_FRAGMENT_DEFINE_NID_TRIPLES_END
 };
 
 int OBJ_find_sigid_algs(int sign_nid, int *out_digest_nid, int *out_pkey_nid) {

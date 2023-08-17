@@ -64,20 +64,40 @@
 #include <openssl/err.h>
 #include <openssl/evp.h>
 #include <openssl/mem.h>
+#include <openssl/span.h>
 
 #include "internal.h"
 #include "../crypto/internal.h"
 
-
 BSSL_NAMESPACE_BEGIN
 
 bool ssl_is_key_type_supported(int key_type) {
-  return key_type == EVP_PKEY_RSA || key_type == EVP_PKEY_EC ||
-         key_type == EVP_PKEY_ED25519;
+  return key_type == EVP_PKEY_RSA ||
+         key_type == EVP_PKEY_EC ||
+         key_type == EVP_PKEY_ED25519 ||
+///// OQS_TEMPLATE_FRAGMENT_CHECK_KEY_TYPE_START
+         key_type == EVP_PKEY_DILITHIUM2 ||
+         key_type == EVP_PKEY_DILITHIUM3 ||
+         key_type == EVP_PKEY_DILITHIUM5 ||
+         key_type == EVP_PKEY_FALCON512 ||
+         key_type == EVP_PKEY_FALCON1024 ||
+         key_type == EVP_PKEY_SPHINCSSHA2128FSIMPLE ||
+         key_type == EVP_PKEY_SPHINCSSHA2128SSIMPLE ||
+         key_type == EVP_PKEY_SPHINCSSHA2192FSIMPLE ||
+         key_type == EVP_PKEY_SPHINCSSHA2192SSIMPLE ||
+         key_type == EVP_PKEY_SPHINCSSHA2256FSIMPLE ||
+         key_type == EVP_PKEY_SPHINCSSHA2256SSIMPLE ||
+         key_type == EVP_PKEY_SPHINCSSHAKE128FSIMPLE ||
+         key_type == EVP_PKEY_SPHINCSSHAKE128SSIMPLE ||
+         key_type == EVP_PKEY_SPHINCSSHAKE192FSIMPLE ||
+         key_type == EVP_PKEY_SPHINCSSHAKE192SSIMPLE ||
+         key_type == EVP_PKEY_SPHINCSSHAKE256FSIMPLE ||
+         key_type == EVP_PKEY_SPHINCSSHAKE256SSIMPLE;
+///// OQS_TEMPLATE_FRAGMENT_CHECK_KEY_TYPE_END
 }
 
 static bool ssl_set_pkey(CERT *cert, EVP_PKEY *pkey) {
-  if (!ssl_is_key_type_supported(pkey->type)) {
+  if (!ssl_is_key_type_supported(EVP_PKEY_id(pkey))) {
     OPENSSL_PUT_ERROR(SSL, SSL_R_UNKNOWN_CERTIFICATE_TYPE);
     return false;
   }
@@ -122,6 +142,25 @@ static const SSL_SIGNATURE_ALGORITHM kSignatureAlgorithms[] = {
      false},
 
     {SSL_SIGN_ED25519, EVP_PKEY_ED25519, NID_undef, nullptr, false},
+///// OQS_TEMPLATE_FRAGMENT_LIST_SSL_SIG_ALGS_START
+    {SSL_SIGN_DILITHIUM2, EVP_PKEY_DILITHIUM2, NID_undef, &EVP_sha256, false},
+    {SSL_SIGN_DILITHIUM3, EVP_PKEY_DILITHIUM3, NID_undef, &EVP_sha384, false},
+    {SSL_SIGN_DILITHIUM5, EVP_PKEY_DILITHIUM5, NID_undef, &EVP_sha512, false},
+    {SSL_SIGN_FALCON512, EVP_PKEY_FALCON512, NID_undef, &EVP_sha256, false},
+    {SSL_SIGN_FALCON1024, EVP_PKEY_FALCON1024, NID_undef, &EVP_sha512, false},
+    {SSL_SIGN_SPHINCSSHA2128FSIMPLE, EVP_PKEY_SPHINCSSHA2128FSIMPLE, NID_undef, &EVP_sha256, false},
+    {SSL_SIGN_SPHINCSSHA2128SSIMPLE, EVP_PKEY_SPHINCSSHA2128SSIMPLE, NID_undef, &EVP_sha256, false},
+    {SSL_SIGN_SPHINCSSHA2192FSIMPLE, EVP_PKEY_SPHINCSSHA2192FSIMPLE, NID_undef, &EVP_sha384, false},
+    {SSL_SIGN_SPHINCSSHA2192SSIMPLE, EVP_PKEY_SPHINCSSHA2192SSIMPLE, NID_undef, &EVP_sha384, false},
+    {SSL_SIGN_SPHINCSSHA2256FSIMPLE, EVP_PKEY_SPHINCSSHA2256FSIMPLE, NID_undef, &EVP_sha512, false},
+    {SSL_SIGN_SPHINCSSHA2256SSIMPLE, EVP_PKEY_SPHINCSSHA2256SSIMPLE, NID_undef, &EVP_sha512, false},
+    {SSL_SIGN_SPHINCSSHAKE128FSIMPLE, EVP_PKEY_SPHINCSSHAKE128FSIMPLE, NID_undef, &EVP_sha256, false},
+    {SSL_SIGN_SPHINCSSHAKE128SSIMPLE, EVP_PKEY_SPHINCSSHAKE128SSIMPLE, NID_undef, &EVP_sha256, false},
+    {SSL_SIGN_SPHINCSSHAKE192FSIMPLE, EVP_PKEY_SPHINCSSHAKE192FSIMPLE, NID_undef, &EVP_sha384, false},
+    {SSL_SIGN_SPHINCSSHAKE192SSIMPLE, EVP_PKEY_SPHINCSSHAKE192SSIMPLE, NID_undef, &EVP_sha384, false},
+    {SSL_SIGN_SPHINCSSHAKE256FSIMPLE, EVP_PKEY_SPHINCSSHAKE256FSIMPLE, NID_undef, &EVP_sha512, false},
+    {SSL_SIGN_SPHINCSSHAKE256SSIMPLE, EVP_PKEY_SPHINCSSHAKE256SSIMPLE, NID_undef, &EVP_sha512, false},
+///// OQS_TEMPLATE_FRAGMENT_LIST_SSL_SIG_ALGS_END
 };
 
 static const SSL_SIGNATURE_ALGORITHM *get_signature_algorithm(uint16_t sigalg) {
@@ -148,6 +187,20 @@ static bool pkey_supports_algorithm(const SSL *ssl, EVP_PKEY *pkey,
   const SSL_SIGNATURE_ALGORITHM *alg = get_signature_algorithm(sigalg);
   if (alg == NULL ||
       EVP_PKEY_id(pkey) != alg->pkey_type) {
+    return false;
+  }
+
+  if (ssl_protocol_version(ssl) < TLS1_2_VERSION) {
+    // TLS 1.0 and 1.1 do not negotiate algorithms and always sign one of two
+    // hardcoded algorithms.
+    return sigalg == SSL_SIGN_RSA_PKCS1_MD5_SHA1 ||
+           sigalg == SSL_SIGN_ECDSA_SHA1;
+  }
+
+  // |SSL_SIGN_RSA_PKCS1_MD5_SHA1| is not a real SignatureScheme for TLS 1.2 and
+  // higher. It is an internal value we use to represent TLS 1.0/1.1's MD5/SHA1
+  // concatenation.
+  if (sigalg == SSL_SIGN_RSA_PKCS1_MD5_SHA1) {
     return false;
   }
 
@@ -201,8 +254,34 @@ enum ssl_private_key_result_t ssl_private_key_sign(
     SSL_HANDSHAKE *hs, uint8_t *out, size_t *out_len, size_t max_out,
     uint16_t sigalg, Span<const uint8_t> in) {
   SSL *const ssl = hs->ssl;
+  SSL_HANDSHAKE_HINTS *const hints = hs->hints.get();
+  Array<uint8_t> spki;
+  if (hints) {
+    ScopedCBB spki_cbb;
+    if (!CBB_init(spki_cbb.get(), 64) ||
+        !EVP_marshal_public_key(spki_cbb.get(), hs->local_pubkey.get()) ||
+        !CBBFinishArray(spki_cbb.get(), &spki)) {
+      ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_INTERNAL_ERROR);
+      return ssl_private_key_failure;
+    }
+  }
+
+  // Replay the signature from handshake hints if available.
+  if (hints && !hs->hints_requested &&         //
+      sigalg == hints->signature_algorithm &&  //
+      in == hints->signature_input &&
+      MakeConstSpan(spki) == hints->signature_spki &&
+      !hints->signature.empty() &&  //
+      hints->signature.size() <= max_out) {
+    // Signature algorithm and input both match. Reuse the signature from hints.
+    *out_len = hints->signature.size();
+    OPENSSL_memcpy(out, hints->signature.data(), hints->signature.size());
+    return ssl_private_key_success;
+  }
+
   const SSL_PRIVATE_KEY_METHOD *key_method = hs->config->cert->key_method;
   EVP_PKEY *privatekey = hs->config->cert->privatekey.get();
+  assert(!hs->can_release_private_key);
   if (ssl_signing_with_dc(hs)) {
     key_method = hs->config->cert->dc_key_method;
     privatekey = hs->config->cert->dc_privatekey.get();
@@ -213,21 +292,33 @@ enum ssl_private_key_result_t ssl_private_key_sign(
     if (hs->pending_private_key_op) {
       ret = key_method->complete(ssl, out, out_len, max_out);
     } else {
-      ret = key_method->sign(ssl, out, out_len, max_out,
-                             sigalg, in.data(), in.size());
+      ret = key_method->sign(ssl, out, out_len, max_out, sigalg, in.data(),
+                             in.size());
     }
     if (ret == ssl_private_key_failure) {
       OPENSSL_PUT_ERROR(SSL, SSL_R_PRIVATE_KEY_OPERATION_FAILED);
     }
     hs->pending_private_key_op = ret == ssl_private_key_retry;
-    return ret;
+    if (ret != ssl_private_key_success) {
+      return ret;
+    }
+  } else {
+    *out_len = max_out;
+    ScopedEVP_MD_CTX ctx;
+    if (!setup_ctx(ssl, ctx.get(), privatekey, sigalg, false /* sign */) ||
+        !EVP_DigestSign(ctx.get(), out, out_len, in.data(), in.size())) {
+      return ssl_private_key_failure;
+    }
   }
 
-  *out_len = max_out;
-  ScopedEVP_MD_CTX ctx;
-  if (!setup_ctx(ssl, ctx.get(), privatekey, sigalg, false /* sign */) ||
-      !EVP_DigestSign(ctx.get(), out, out_len, in.data(), in.size())) {
-    return ssl_private_key_failure;
+  // Save the hint if applicable.
+  if (hints && hs->hints_requested) {
+    hints->signature_algorithm = sigalg;
+    hints->signature_spki = std::move(spki);
+    if (!hints->signature_input.CopyFrom(in) ||
+        !hints->signature.CopyFrom(MakeConstSpan(out, *out_len))) {
+      return ssl_private_key_failure;
+    }
   }
   return ssl_private_key_success;
 }
@@ -236,9 +327,16 @@ bool ssl_public_key_verify(SSL *ssl, Span<const uint8_t> signature,
                            uint16_t sigalg, EVP_PKEY *pkey,
                            Span<const uint8_t> in) {
   ScopedEVP_MD_CTX ctx;
-  return setup_ctx(ssl, ctx.get(), pkey, sigalg, true /* verify */) &&
-         EVP_DigestVerify(ctx.get(), signature.data(), signature.size(),
-                          in.data(), in.size());
+  if (!setup_ctx(ssl, ctx.get(), pkey, sigalg, true /* verify */)) {
+    return false;
+  }
+  bool ok = EVP_DigestVerify(ctx.get(), signature.data(), signature.size(),
+                             in.data(), in.size());
+#if defined(BORINGSSL_UNSAFE_FUZZER_MODE)
+  ok = true;
+  ERR_clear_error();
+#endif
+  return ok;
 }
 
 enum ssl_private_key_result_t ssl_private_key_decrypt(SSL_HANDSHAKE *hs,
@@ -247,6 +345,7 @@ enum ssl_private_key_result_t ssl_private_key_decrypt(SSL_HANDSHAKE *hs,
                                                       size_t max_out,
                                                       Span<const uint8_t> in) {
   SSL *const ssl = hs->ssl;
+  assert(!hs->can_release_private_key);
   if (hs->config->cert->key_method != NULL) {
     enum ssl_private_key_result_t ret;
     if (hs->pending_private_key_op) {
@@ -422,14 +521,18 @@ void SSL_CTX_set_private_key_method(SSL_CTX *ctx,
   ctx->cert->key_method = key_method;
 }
 
-static constexpr size_t kMaxSignatureAlgorithmNameLen = 23;
+// OQS note: This was changed from 23 to 30 to accommodate
+// large algorithm names (such as "Rainbow-IIIc-Cyclic-Compressed").
+static constexpr size_t kMaxSignatureAlgorithmNameLen = 30;
+
+struct SignatureAlgorithmName {
+  uint16_t signature_algorithm;
+  const char name[kMaxSignatureAlgorithmNameLen];
+};
 
 // This was "constexpr" rather than "const", but that triggered a bug in MSVC
 // where it didn't pad the strings to the correct length.
-static const struct {
-  uint16_t signature_algorithm;
-  const char name[kMaxSignatureAlgorithmNameLen];
-} kSignatureAlgorithmNames[] = {
+static const SignatureAlgorithmName kSignatureAlgorithmNames[] = {
     {SSL_SIGN_RSA_PKCS1_MD5_SHA1, "rsa_pkcs1_md5_sha1"},
     {SSL_SIGN_RSA_PKCS1_SHA1, "rsa_pkcs1_sha1"},
     {SSL_SIGN_RSA_PKCS1_SHA256, "rsa_pkcs1_sha256"},
@@ -443,6 +546,25 @@ static const struct {
     {SSL_SIGN_RSA_PSS_RSAE_SHA384, "rsa_pss_rsae_sha384"},
     {SSL_SIGN_RSA_PSS_RSAE_SHA512, "rsa_pss_rsae_sha512"},
     {SSL_SIGN_ED25519, "ed25519"},
+///// OQS_TEMPLATE_FRAGMENT_NAME_SIG_ALG_START
+    {SSL_SIGN_DILITHIUM2, "dilithium2"},
+    {SSL_SIGN_DILITHIUM3, "dilithium3"},
+    {SSL_SIGN_DILITHIUM5, "dilithium5"},
+    {SSL_SIGN_FALCON512, "falcon512"},
+    {SSL_SIGN_FALCON1024, "falcon1024"},
+    {SSL_SIGN_SPHINCSSHA2128FSIMPLE, "sphincssha2128fsimple"},
+    {SSL_SIGN_SPHINCSSHA2128SSIMPLE, "sphincssha2128ssimple"},
+    {SSL_SIGN_SPHINCSSHA2192FSIMPLE, "sphincssha2192fsimple"},
+    {SSL_SIGN_SPHINCSSHA2192SSIMPLE, "sphincssha2192ssimple"},
+    {SSL_SIGN_SPHINCSSHA2256FSIMPLE, "sphincssha2256fsimple"},
+    {SSL_SIGN_SPHINCSSHA2256SSIMPLE, "sphincssha2256ssimple"},
+    {SSL_SIGN_SPHINCSSHAKE128FSIMPLE, "sphincsshake128fsimple"},
+    {SSL_SIGN_SPHINCSSHAKE128SSIMPLE, "sphincsshake128ssimple"},
+    {SSL_SIGN_SPHINCSSHAKE192FSIMPLE, "sphincsshake192fsimple"},
+    {SSL_SIGN_SPHINCSSHAKE192SSIMPLE, "sphincsshake192ssimple"},
+    {SSL_SIGN_SPHINCSSHAKE256FSIMPLE, "sphincsshake256fsimple"},
+    {SSL_SIGN_SPHINCSSHAKE256SSIMPLE, "sphincsshake256ssimple"},
+///// OQS_TEMPLATE_FRAGMENT_NAME_SIG_ALG_END
 };
 
 const char *SSL_get_signature_algorithm_name(uint16_t sigalg,
@@ -455,6 +577,8 @@ const char *SSL_get_signature_algorithm_name(uint16_t sigalg,
         return "ecdsa_sha384";
       case SSL_SIGN_ECDSA_SECP521R1_SHA512:
         return "ecdsa_sha512";
+        // If adding more here, also update
+        // |SSL_get_all_signature_algorithm_names|.
     }
   }
 
@@ -465,6 +589,14 @@ const char *SSL_get_signature_algorithm_name(uint16_t sigalg,
   }
 
   return NULL;
+}
+
+size_t SSL_get_all_signature_algorithm_names(const char **out, size_t max_out) {
+  const char *kPredefinedNames[] = {"ecdsa_sha256", "ecdsa_sha384",
+                                    "ecdsa_sha512"};
+  return GetAllNames(out, max_out, MakeConstSpan(kPredefinedNames),
+                     &SignatureAlgorithmName::name,
+                     MakeConstSpan(kSignatureAlgorithmNames));
 }
 
 int SSL_get_signature_algorithm_key_type(uint16_t sigalg) {
@@ -483,72 +615,6 @@ const EVP_MD *SSL_get_signature_algorithm_digest(uint16_t sigalg) {
 int SSL_is_signature_algorithm_rsa_pss(uint16_t sigalg) {
   const SSL_SIGNATURE_ALGORITHM *alg = get_signature_algorithm(sigalg);
   return alg != nullptr && alg->is_rsa_pss;
-}
-
-int SSL_CTX_set_signing_algorithm_prefs(SSL_CTX *ctx, const uint16_t *prefs,
-                                        size_t num_prefs) {
-  return ctx->cert->sigalgs.CopyFrom(MakeConstSpan(prefs, num_prefs));
-}
-
-int SSL_set_signing_algorithm_prefs(SSL *ssl, const uint16_t *prefs,
-                                    size_t num_prefs) {
-  if (!ssl->config) {
-    return 0;
-  }
-  return ssl->config->cert->sigalgs.CopyFrom(MakeConstSpan(prefs, num_prefs));
-}
-
-static constexpr struct {
-  int pkey_type;
-  int hash_nid;
-  uint16_t signature_algorithm;
-} kSignatureAlgorithmsMapping[] = {
-    {EVP_PKEY_RSA, NID_sha1, SSL_SIGN_RSA_PKCS1_SHA1},
-    {EVP_PKEY_RSA, NID_sha256, SSL_SIGN_RSA_PKCS1_SHA256},
-    {EVP_PKEY_RSA, NID_sha384, SSL_SIGN_RSA_PKCS1_SHA384},
-    {EVP_PKEY_RSA, NID_sha512, SSL_SIGN_RSA_PKCS1_SHA512},
-    {EVP_PKEY_RSA_PSS, NID_sha256, SSL_SIGN_RSA_PSS_RSAE_SHA256},
-    {EVP_PKEY_RSA_PSS, NID_sha384, SSL_SIGN_RSA_PSS_RSAE_SHA384},
-    {EVP_PKEY_RSA_PSS, NID_sha512, SSL_SIGN_RSA_PSS_RSAE_SHA512},
-    {EVP_PKEY_EC, NID_sha1, SSL_SIGN_ECDSA_SHA1},
-    {EVP_PKEY_EC, NID_sha256, SSL_SIGN_ECDSA_SECP256R1_SHA256},
-    {EVP_PKEY_EC, NID_sha384, SSL_SIGN_ECDSA_SECP384R1_SHA384},
-    {EVP_PKEY_EC, NID_sha512, SSL_SIGN_ECDSA_SECP521R1_SHA512},
-    {EVP_PKEY_ED25519, NID_undef, SSL_SIGN_ED25519},
-};
-
-static bool parse_sigalg_pairs(Array<uint16_t> *out, const int *values,
-                               size_t num_values) {
-  if ((num_values & 1) == 1) {
-    return false;
-  }
-
-  const size_t num_pairs = num_values / 2;
-  if (!out->Init(num_pairs)) {
-    return false;
-  }
-
-  for (size_t i = 0; i < num_values; i += 2) {
-    const int hash_nid = values[i];
-    const int pkey_type = values[i+1];
-
-    bool found = false;
-    for (const auto &candidate : kSignatureAlgorithmsMapping) {
-      if (candidate.pkey_type == pkey_type && candidate.hash_nid == hash_nid) {
-        (*out)[i / 2] = candidate.signature_algorithm;
-        found = true;
-        break;
-      }
-    }
-
-    if (!found) {
-      OPENSSL_PUT_ERROR(SSL, SSL_R_INVALID_SIGNATURE_ALGORITHM);
-      ERR_add_error_dataf("unknown hash:%d pkey:%d", hash_nid, pkey_type);
-      return false;
-    }
-  }
-
-  return true;
 }
 
 static int compare_uint16_t(const void *p1, const void *p2) {
@@ -585,16 +651,142 @@ static bool sigalgs_unique(Span<const uint16_t> in_sigalgs) {
   return true;
 }
 
+static bool set_sigalg_prefs(Array<uint16_t> *out, Span<const uint16_t> prefs) {
+  if (!sigalgs_unique(prefs)) {
+    return false;
+  }
+
+  // Check for invalid algorithms, and filter out |SSL_SIGN_RSA_PKCS1_MD5_SHA1|.
+  Array<uint16_t> filtered;
+  if (!filtered.Init(prefs.size())) {
+    return false;
+  }
+  size_t added = 0;
+  for (uint16_t pref : prefs) {
+    if (pref == SSL_SIGN_RSA_PKCS1_MD5_SHA1) {
+      // Though not intended to be used with this API, we treat
+      // |SSL_SIGN_RSA_PKCS1_MD5_SHA1| as a real signature algorithm in
+      // |SSL_PRIVATE_KEY_METHOD|. Not accepting it here makes for a confusing
+      // abstraction.
+      continue;
+    }
+    if (get_signature_algorithm(pref) == nullptr) {
+      OPENSSL_PUT_ERROR(SSL, SSL_R_INVALID_SIGNATURE_ALGORITHM);
+      return false;
+    }
+    filtered[added] = pref;
+    added++;
+  }
+  filtered.Shrink(added);
+
+  // This can happen if |prefs| contained only |SSL_SIGN_RSA_PKCS1_MD5_SHA1|.
+  // Leaving it empty would revert to the default, so treat this as an error
+  // condition.
+  if (!prefs.empty() && filtered.empty()) {
+    OPENSSL_PUT_ERROR(SSL, SSL_R_INVALID_SIGNATURE_ALGORITHM);
+    return false;
+  }
+
+  *out = std::move(filtered);
+  return true;
+}
+
+int SSL_CTX_set_signing_algorithm_prefs(SSL_CTX *ctx, const uint16_t *prefs,
+                                        size_t num_prefs) {
+  return set_sigalg_prefs(&ctx->cert->sigalgs, MakeConstSpan(prefs, num_prefs));
+}
+
+int SSL_set_signing_algorithm_prefs(SSL *ssl, const uint16_t *prefs,
+                                    size_t num_prefs) {
+  if (!ssl->config) {
+    return 0;
+  }
+  return set_sigalg_prefs(&ssl->config->cert->sigalgs,
+                          MakeConstSpan(prefs, num_prefs));
+}
+
+static constexpr struct {
+  int pkey_type;
+  int hash_nid;
+  uint16_t signature_algorithm;
+} kSignatureAlgorithmsMapping[] = {
+    {EVP_PKEY_RSA, NID_sha1, SSL_SIGN_RSA_PKCS1_SHA1},
+    {EVP_PKEY_RSA, NID_sha256, SSL_SIGN_RSA_PKCS1_SHA256},
+    {EVP_PKEY_RSA, NID_sha384, SSL_SIGN_RSA_PKCS1_SHA384},
+    {EVP_PKEY_RSA, NID_sha512, SSL_SIGN_RSA_PKCS1_SHA512},
+    {EVP_PKEY_RSA_PSS, NID_sha256, SSL_SIGN_RSA_PSS_RSAE_SHA256},
+    {EVP_PKEY_RSA_PSS, NID_sha384, SSL_SIGN_RSA_PSS_RSAE_SHA384},
+    {EVP_PKEY_RSA_PSS, NID_sha512, SSL_SIGN_RSA_PSS_RSAE_SHA512},
+    {EVP_PKEY_EC, NID_sha1, SSL_SIGN_ECDSA_SHA1},
+    {EVP_PKEY_EC, NID_sha256, SSL_SIGN_ECDSA_SECP256R1_SHA256},
+    {EVP_PKEY_EC, NID_sha384, SSL_SIGN_ECDSA_SECP384R1_SHA384},
+    {EVP_PKEY_EC, NID_sha512, SSL_SIGN_ECDSA_SECP521R1_SHA512},
+    {EVP_PKEY_ED25519, NID_undef, SSL_SIGN_ED25519},
+///// OQS_TEMPLATE_FRAGMENT_ADD_SIG_ALG_MAPPINGS_START
+    {EVP_PKEY_DILITHIUM2, NID_sha256, SSL_SIGN_DILITHIUM2},
+    {EVP_PKEY_DILITHIUM3, NID_sha384, SSL_SIGN_DILITHIUM3},
+    {EVP_PKEY_DILITHIUM5, NID_sha512, SSL_SIGN_DILITHIUM5},
+    {EVP_PKEY_FALCON512, NID_sha256, SSL_SIGN_FALCON512},
+    {EVP_PKEY_FALCON1024, NID_sha512, SSL_SIGN_FALCON1024},
+    {EVP_PKEY_SPHINCSSHA2128FSIMPLE, NID_sha256, SSL_SIGN_SPHINCSSHA2128FSIMPLE},
+    {EVP_PKEY_SPHINCSSHA2128SSIMPLE, NID_sha256, SSL_SIGN_SPHINCSSHA2128SSIMPLE},
+    {EVP_PKEY_SPHINCSSHA2192FSIMPLE, NID_sha384, SSL_SIGN_SPHINCSSHA2192FSIMPLE},
+    {EVP_PKEY_SPHINCSSHA2192SSIMPLE, NID_sha384, SSL_SIGN_SPHINCSSHA2192SSIMPLE},
+    {EVP_PKEY_SPHINCSSHA2256FSIMPLE, NID_sha512, SSL_SIGN_SPHINCSSHA2256FSIMPLE},
+    {EVP_PKEY_SPHINCSSHA2256SSIMPLE, NID_sha512, SSL_SIGN_SPHINCSSHA2256SSIMPLE},
+    {EVP_PKEY_SPHINCSSHAKE128FSIMPLE, NID_sha256, SSL_SIGN_SPHINCSSHAKE128FSIMPLE},
+    {EVP_PKEY_SPHINCSSHAKE128SSIMPLE, NID_sha256, SSL_SIGN_SPHINCSSHAKE128SSIMPLE},
+    {EVP_PKEY_SPHINCSSHAKE192FSIMPLE, NID_sha384, SSL_SIGN_SPHINCSSHAKE192FSIMPLE},
+    {EVP_PKEY_SPHINCSSHAKE192SSIMPLE, NID_sha384, SSL_SIGN_SPHINCSSHAKE192SSIMPLE},
+    {EVP_PKEY_SPHINCSSHAKE256FSIMPLE, NID_sha512, SSL_SIGN_SPHINCSSHAKE256FSIMPLE},
+    {EVP_PKEY_SPHINCSSHAKE256SSIMPLE, NID_sha512, SSL_SIGN_SPHINCSSHAKE256SSIMPLE},
+///// OQS_TEMPLATE_FRAGMENT_ADD_SIG_ALG_MAPPINGS_END
+};
+
+static bool parse_sigalg_pairs(Array<uint16_t> *out, const int *values,
+                               size_t num_values) {
+  if ((num_values & 1) == 1) {
+    return false;
+  }
+
+  const size_t num_pairs = num_values / 2;
+  if (!out->Init(num_pairs)) {
+    return false;
+  }
+
+  for (size_t i = 0; i < num_values; i += 2) {
+    const int hash_nid = values[i];
+    const int pkey_type = values[i+1];
+
+    bool found = false;
+    for (const auto &candidate : kSignatureAlgorithmsMapping) {
+      if (candidate.pkey_type == pkey_type && candidate.hash_nid == hash_nid) {
+        (*out)[i / 2] = candidate.signature_algorithm;
+        found = true;
+        break;
+      }
+    }
+
+    if (!found) {
+      OPENSSL_PUT_ERROR(SSL, SSL_R_INVALID_SIGNATURE_ALGORITHM);
+      ERR_add_error_dataf("unknown hash:%d pkey:%d", hash_nid, pkey_type);
+      return false;
+    }
+  }
+
+  return true;
+}
+
 int SSL_CTX_set1_sigalgs(SSL_CTX *ctx, const int *values, size_t num_values) {
   Array<uint16_t> sigalgs;
-  if (!parse_sigalg_pairs(&sigalgs, values, num_values) ||
-      !sigalgs_unique(sigalgs)) {
+  if (!parse_sigalg_pairs(&sigalgs, values, num_values)) {
     return 0;
   }
 
   if (!SSL_CTX_set_signing_algorithm_prefs(ctx, sigalgs.data(),
                                            sigalgs.size()) ||
-      !ctx->verify_sigalgs.CopyFrom(sigalgs)) {
+      !SSL_CTX_set_verify_algorithm_prefs(ctx, sigalgs.data(),
+                                          sigalgs.size())) {
     return 0;
   }
 
@@ -608,13 +800,12 @@ int SSL_set1_sigalgs(SSL *ssl, const int *values, size_t num_values) {
   }
 
   Array<uint16_t> sigalgs;
-  if (!parse_sigalg_pairs(&sigalgs, values, num_values) ||
-      !sigalgs_unique(sigalgs)) {
+  if (!parse_sigalg_pairs(&sigalgs, values, num_values)) {
     return 0;
   }
 
   if (!SSL_set_signing_algorithm_prefs(ssl, sigalgs.data(), sigalgs.size()) ||
-      !ssl->config->verify_sigalgs.CopyFrom(sigalgs)) {
+      !SSL_set_verify_algorithm_prefs(ssl, sigalgs.data(), sigalgs.size())) {
     return 0;
   }
 
@@ -654,7 +845,7 @@ static bool parse_sigalgs_list(Array<uint16_t> *out, const char *str) {
 
   // Note that the loop runs to len+1, i.e. it'll process the terminating NUL.
   for (size_t offset = 0; offset < len+1; offset++) {
-    const char c = str[offset];
+    const unsigned char c = str[offset];
 
     switch (c) {
       case '+':
@@ -759,8 +950,7 @@ static bool parse_sigalgs_list(Array<uint16_t> *out, const char *str) {
           return false;
         }
 
-        if ((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') ||
-            (c >= 'A' && c <= 'Z') || c == '-' || c == '_') {
+        if (OPENSSL_isalnum(c) || c == '-' || c == '_') {
           buf[buf_used++] = c;
         } else {
           OPENSSL_PUT_ERROR(SSL, SSL_R_INVALID_SIGNATURE_ALGORITHM);
@@ -777,14 +967,14 @@ static bool parse_sigalgs_list(Array<uint16_t> *out, const char *str) {
 
 int SSL_CTX_set1_sigalgs_list(SSL_CTX *ctx, const char *str) {
   Array<uint16_t> sigalgs;
-  if (!parse_sigalgs_list(&sigalgs, str) ||
-      !sigalgs_unique(sigalgs)) {
+  if (!parse_sigalgs_list(&sigalgs, str)) {
     return 0;
   }
 
   if (!SSL_CTX_set_signing_algorithm_prefs(ctx, sigalgs.data(),
                                            sigalgs.size()) ||
-      !ctx->verify_sigalgs.CopyFrom(sigalgs)) {
+      !SSL_CTX_set_verify_algorithm_prefs(ctx, sigalgs.data(),
+                                          sigalgs.size())) {
     return 0;
   }
 
@@ -798,13 +988,12 @@ int SSL_set1_sigalgs_list(SSL *ssl, const char *str) {
   }
 
   Array<uint16_t> sigalgs;
-  if (!parse_sigalgs_list(&sigalgs, str) ||
-      !sigalgs_unique(sigalgs)) {
+  if (!parse_sigalgs_list(&sigalgs, str)) {
     return 0;
   }
 
   if (!SSL_set_signing_algorithm_prefs(ssl, sigalgs.data(), sigalgs.size()) ||
-      !ssl->config->verify_sigalgs.CopyFrom(sigalgs)) {
+      !SSL_set_verify_algorithm_prefs(ssl, sigalgs.data(), sigalgs.size())) {
     return 0;
   }
 
@@ -813,5 +1002,17 @@ int SSL_set1_sigalgs_list(SSL *ssl, const char *str) {
 
 int SSL_CTX_set_verify_algorithm_prefs(SSL_CTX *ctx, const uint16_t *prefs,
                                        size_t num_prefs) {
-  return ctx->verify_sigalgs.CopyFrom(MakeConstSpan(prefs, num_prefs));
+  return set_sigalg_prefs(&ctx->verify_sigalgs,
+                          MakeConstSpan(prefs, num_prefs));
+}
+
+int SSL_set_verify_algorithm_prefs(SSL *ssl, const uint16_t *prefs,
+                                   size_t num_prefs) {
+  if (!ssl->config) {
+    OPENSSL_PUT_ERROR(SSL, ERR_R_SHOULD_NOT_HAVE_BEEN_CALLED);
+    return 0;
+  }
+
+  return set_sigalg_prefs(&ssl->config->verify_sigalgs,
+                          MakeConstSpan(prefs, num_prefs));
 }

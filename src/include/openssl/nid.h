@@ -4193,6 +4193,7 @@ extern "C" {
 
 #define SN_X25519 "X25519"
 #define NID_X25519 948
+#define OBJ_X25519 1L, 3L, 101L, 110L
 
 #define SN_ED25519 "ED25519"
 #define NID_ED25519 949
@@ -4234,8 +4235,194 @@ extern "C" {
 #define LN_auth_any "auth-any"
 #define NID_auth_any 958
 
-#define SN_CECPQ2 "CECPQ2"
-#define NID_CECPQ2 959
+#define SN_ED448 "ED448"
+#define NID_ED448 960
+#define OBJ_ED448 1L, 3L, 101L, 113L
+
+#define SN_X448 "X448"
+#define NID_X448 961
+#define OBJ_X448 1L, 3L, 101L, 111L
+
+#define SN_sha512_256 "SHA512-256"
+#define LN_sha512_256 "sha512-256"
+#define NID_sha512_256 962
+#define OBJ_sha512_256 2L, 16L, 840L, 1L, 101L, 3L, 4L, 2L, 6L
+
+#define SN_hkdf "HKDF"
+#define LN_hkdf "hkdf"
+#define NID_hkdf 963
+
+#define SN_X25519Kyber768Draft00 "X25519Kyber768Draft00"
+#define NID_X25519Kyber768Draft00 964
+
+#define SN_frodo640aes "frodo640aes"
+#define NID_frodo640aes 965
+
+#define SN_p256_frodo640aes "p256_frodo640aes"
+#define NID_p256_frodo640aes 966
+
+#define SN_dilithium2 "dilithium2"
+#define LN_dilithium2 "dilithium2"
+#define NID_dilithium2 967
+#define OBJ_dilithium2 1L, 3L, 6L, 1L, 4L, 1L, 2L, 267L, 7L, 4L, 4L
+
+#define SN_frodo640shake "frodo640shake"
+#define NID_frodo640shake 977
+
+#define SN_p256_frodo640shake "p256_frodo640shake"
+#define NID_p256_frodo640shake 978
+
+#define SN_frodo976aes "frodo976aes"
+#define NID_frodo976aes 979
+
+#define SN_p384_frodo976aes "p384_frodo976aes"
+#define NID_p384_frodo976aes 980
+
+#define SN_frodo976shake "frodo976shake"
+#define NID_frodo976shake 981
+
+#define SN_p384_frodo976shake "p384_frodo976shake"
+#define NID_p384_frodo976shake 982
+
+#define SN_frodo1344aes "frodo1344aes"
+#define NID_frodo1344aes 983
+
+#define SN_p521_frodo1344aes "p521_frodo1344aes"
+#define NID_p521_frodo1344aes 984
+
+#define SN_frodo1344shake "frodo1344shake"
+#define NID_frodo1344shake 985
+
+#define SN_p521_frodo1344shake "p521_frodo1344shake"
+#define NID_p521_frodo1344shake 986
+
+#define SN_kyber512 "kyber512"
+#define NID_kyber512 997
+
+#define SN_p256_kyber512 "p256_kyber512"
+#define NID_p256_kyber512 998
+
+#define SN_kyber768 "kyber768"
+#define NID_kyber768 999
+
+#define SN_p384_kyber768 "p384_kyber768"
+#define NID_p384_kyber768 1000
+
+#define SN_kyber1024 "kyber1024"
+#define NID_kyber1024 1001
+
+#define SN_p521_kyber1024 "p521_kyber1024"
+#define NID_p521_kyber1024 1002
+
+#define SN_hqc128 "hqc128"
+#define NID_hqc128 1136
+
+#define SN_p256_hqc128 "p256_hqc128"
+#define NID_p256_hqc128 1137
+
+#define SN_hqc192 "hqc192"
+#define NID_hqc192 1138
+
+#define SN_p384_hqc192 "p384_hqc192"
+#define NID_p384_hqc192 1139
+
+#define SN_hqc256 "hqc256"
+#define NID_hqc256 1140
+
+#define SN_p521_hqc256 "p521_hqc256"
+#define NID_p521_hqc256 1141
+
+#define SN_dilithium3 "dilithium3"
+#define LN_dilithium3 "dilithium3"
+#define NID_dilithium3 1143
+#define OBJ_dilithium3 1L, 3L, 6L, 1L, 4L, 1L, 2L, 267L, 7L, 6L, 5L
+
+#define SN_falcon512 "falcon512"
+#define LN_falcon512 "falcon512"
+#define NID_falcon512 1145
+#define OBJ_falcon512 1L, 3L, 9999L, 3L, 6L
+
+#define SN_falcon1024 "falcon1024"
+#define LN_falcon1024 "falcon1024"
+#define NID_falcon1024 1146
+#define OBJ_falcon1024 1L, 3L, 9999L, 3L, 9L
+
+#define SN_dilithium5 "dilithium5"
+#define LN_dilithium5 "dilithium5"
+#define NID_dilithium5 1207
+#define OBJ_dilithium5 1L, 3L, 6L, 1L, 4L, 1L, 2L, 267L, 7L, 8L, 7L
+
+#define SN_bikel1 "bikel1"
+#define NID_bikel1 1211
+
+#define SN_p256_bikel1 "p256_bikel1"
+#define NID_p256_bikel1 1212
+
+#define SN_bikel3 "bikel3"
+#define NID_bikel3 1213
+
+#define SN_p384_bikel3 "p384_bikel3"
+#define NID_p384_bikel3 1214
+
+#define SN_sphincssha2128fsimple "sphincssha2128fsimple"
+#define LN_sphincssha2128fsimple "sphincssha2128fsimple"
+#define NID_sphincssha2128fsimple 1215
+#define OBJ_sphincssha2128fsimple 1L, 3L, 9999L, 6L, 4L, 13L
+
+#define SN_sphincssha2128ssimple "sphincssha2128ssimple"
+#define LN_sphincssha2128ssimple "sphincssha2128ssimple"
+#define NID_sphincssha2128ssimple 1216
+#define OBJ_sphincssha2128ssimple 1L, 3L, 9999L, 6L, 4L, 16L
+
+#define SN_sphincssha2192fsimple "sphincssha2192fsimple"
+#define LN_sphincssha2192fsimple "sphincssha2192fsimple"
+#define NID_sphincssha2192fsimple 1217
+#define OBJ_sphincssha2192fsimple 1L, 3L, 9999L, 6L, 5L, 10L
+
+#define SN_sphincssha2192ssimple "sphincssha2192ssimple"
+#define LN_sphincssha2192ssimple "sphincssha2192ssimple"
+#define NID_sphincssha2192ssimple 1218
+#define OBJ_sphincssha2192ssimple 1L, 3L, 9999L, 6L, 5L, 12L
+
+#define SN_sphincssha2256fsimple "sphincssha2256fsimple"
+#define LN_sphincssha2256fsimple "sphincssha2256fsimple"
+#define NID_sphincssha2256fsimple 1219
+#define OBJ_sphincssha2256fsimple 1L, 3L, 9999L, 6L, 6L, 10L
+
+#define SN_sphincssha2256ssimple "sphincssha2256ssimple"
+#define LN_sphincssha2256ssimple "sphincssha2256ssimple"
+#define NID_sphincssha2256ssimple 1220
+#define OBJ_sphincssha2256ssimple 1L, 3L, 9999L, 6L, 6L, 12L
+
+#define SN_sphincsshake128fsimple "sphincsshake128fsimple"
+#define LN_sphincsshake128fsimple "sphincsshake128fsimple"
+#define NID_sphincsshake128fsimple 1221
+#define OBJ_sphincsshake128fsimple 1L, 3L, 9999L, 6L, 7L, 13L
+
+#define SN_sphincsshake128ssimple "sphincsshake128ssimple"
+#define LN_sphincsshake128ssimple "sphincsshake128ssimple"
+#define NID_sphincsshake128ssimple 1222
+#define OBJ_sphincsshake128ssimple 1L, 3L, 9999L, 6L, 7L, 16L
+
+#define SN_sphincsshake192fsimple "sphincsshake192fsimple"
+#define LN_sphincsshake192fsimple "sphincsshake192fsimple"
+#define NID_sphincsshake192fsimple 1223
+#define OBJ_sphincsshake192fsimple 1L, 3L, 9999L, 6L, 8L, 10L
+
+#define SN_sphincsshake192ssimple "sphincsshake192ssimple"
+#define LN_sphincsshake192ssimple "sphincsshake192ssimple"
+#define NID_sphincsshake192ssimple 1224
+#define OBJ_sphincsshake192ssimple 1L, 3L, 9999L, 6L, 8L, 12L
+
+#define SN_sphincsshake256fsimple "sphincsshake256fsimple"
+#define LN_sphincsshake256fsimple "sphincsshake256fsimple"
+#define NID_sphincsshake256fsimple 1225
+#define OBJ_sphincsshake256fsimple 1L, 3L, 9999L, 6L, 9L, 10L
+
+#define SN_sphincsshake256ssimple "sphincsshake256ssimple"
+#define LN_sphincsshake256ssimple "sphincsshake256ssimple"
+#define NID_sphincsshake256ssimple 1226
+#define OBJ_sphincsshake256ssimple 1L, 3L, 9999L, 6L, 9L, 12L
 
 
 #if defined(__cplusplus)
